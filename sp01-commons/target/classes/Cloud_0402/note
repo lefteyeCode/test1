@@ -1,0 +1,115 @@
+一.Ribbon
+      做负载均衡和重试，Spring boot的RestTemplate工具可以实现远程调用
+      （1）负载均衡:对集群中的服务器轮询调用
+      （2）重试:当调用失败或者超时，可以重试调用
+   ribbon对RestTemplate做了封装，添加了负载均衡和重试的功能，通过AOP生成动态代理，
+       在RestTemplate上切入了代码，对RestTemplate添加@LoadBalanced注解，就可以生成动态代理
+      1.RestTemplate测试案例
+      	1>创建sp06-ribbon 项目，添加web和eureka依赖
+      	2>在yml文件中编写配置，配置应用名、服务端口、eureka客户端
+      	3>主启动类中编写方法，返回新建的RestTemplay对象，方法使用@Bean注解描述交给Spring管理
+      	4>编写RibbonController控制类，接受请求，使用注解自动装填RestTemplate对象
+      	5>编写方法接收请求，方法中借助RestTemplate对象的方法进行远程调用，这里使用getForObject(url,class,params)
+      	  url是调用地址，class是返回值类型，params是请求参数，url中参数使用{}做占位符
+      	6>访问进行测试
+		eg:(sp06-ribbon/com.tedu.sp06.controller/RibbonController)
+	  2.ribbon实现负载均衡测试案例
+	  	ribbon封装了RestTemplate，在其基础上实现了负载均衡和重试（底层通过注解AOP实现动态代理扩展功能）
+	  	1>服务有多个服务器时实现负载均衡，地址的ip和端口部分替换为注册在注册中心（eureka）的服务名
+      	     直接写服务id，可以获取对应服务下所有主机路径，轮询发送请求
+      	     eg:rt.getForObject("http://item-service/{1}",JsonResult.class, orderId);
+	  	2>添加ribbon依赖，在主启动类中编写方法，使用@LoadBalanced注解描述返回RestTemplate的方法
+	  	3>访问进行测试，查看每次访问的端口是否变化实现了负载均衡
+		eg:(sp06-ribbon/com.tedu.sp06/Sp06RibbonApplication)
+	  3.ribbon实现重试测试案例
+	  	1>添加spring-retry依赖
+	  		<dependency>
+				<groupId>org.springframework.retry</groupId>
+				<artifactId>spring-retry</artifactId>
+			</dependency>
+	  	2>yml添加重试的配置参数
+	  	  MaxAutoRetries单台服务器重试次数
+		  MaxAutoRetriesNextServcer为向后重试服务器次数（如果其他服务器不够，在返回重试）
+		  OkToRetryAllOperations为true时候get/post请求都要重试，false时不对post重试（因为post一般涉及添加修改，如果超时重试可能造成多次修改）
+		  ConnectionTimeout毫秒级，连接超时
+		  ReadTimeout毫秒级，返回超时
+		  //*修改上面的超时时间，由于ribbon的bug，修改时间需要修改代码，在主启动类中返回RestTemplate的方法中设置超时时间
+		             通过SimpleClientHttpRequestFactory对象设置两个超时时间，将该对象传入RestTemplate返回交给Spring管理
+		  		eg:(sp06-ribbon/com.tedu.sp06/Sp06RibbonApplication)
+		3>Controller中添加延迟代码进行测试
+				long t = new Random().nextInt(5000);
+				if(Math.random()<0.6) { 
+					log.info("item-service-"+port+" - 暂停 "+t);
+					Thread.sleep(t);
+				}
+				
+
+二.hystrix
+      降级:在服务不可用、出错、超时时直接向客户端发回响应结果，可以返回错误提示或缓存数据等。			
+      熔断:当瞬间有大量访问，大量访问失败降级，会触发熔断。断路器打开，所有访问都直接执行降级代码，
+      5秒后进入半开状态，会尝试向后台服务调用。如果成功，关闭断路器。如果仍然失败，继续保持打开状态。
+                触发条件:10秒20次请求
+             50%失败降级   
+	1.使用案例
+		1>添加hystrix起步依赖             
+		2>修改yml配置文件             
+		3>主启动类添加@EnableCircuitBreaker，启用hystrix断路器             
+		  @EnableCircuitBreaker+@EnableDiscoveryClient+@SpringBootApplication=@SpringCloudAppliation             
+		4>控制器中添加降级方法，并在被降级的代码上添加@HystrixCommand注解，注解内容fallbackMethod值为降级方法名
+		5>Hystrix断路超时设置，yml中设置
+			hystrix:
+			  command:
+			    default:
+			      execution:
+			        isolation:
+			          thread:
+			            timeoutInMilliseconds: 500 //默认1秒，超时就降级
+		6>启动项目进行测试
+		eg:(sp07-hystrix)
+	2.hystrix dashboard断路器仪表盘
+	  hystrix 对请求的熔断和断路处理，可以产生监控信息，hystrix dashboard可以实时的进行监控
+	  	1>添加actuator依赖
+	  	2>yml文件中添加配置
+	  	  actuator是spring boot 提供的服务监控工具，提供了各种监控端点
+	  	     配置选项可以指定端点名，来暴露监控端点，如果是"*"则暴露所有端点
+	  	  	management:
+			  endpoints:
+			    web:
+			      exposure:
+			        include: "*" 
+	  	3>访问actuator路径，查看监控端点
+	  	http://localhost:3001/actuator
+		     修改include值为hystrix.steam只暴露hystrix的端点
+		4>创建sp08-hystrix-dashboard项目，通过该项目访问监控端点获取数据进行分析
+			1)添加hystrix-dashboard依赖
+			2)编写在yml配置文件配置
+			3)主启动类中添加@EnableHystrixDashboard和@EnableDiscoveryClient
+		    4)访问hystrix-dashboard
+		      http://localhost:4001/hystrix 
+		    5)填入 hystrix 的监控端点，开启监控
+		      localhost:3001/actuator/hystrix.stream
+		5>使用apache的并发访问测试工具ab
+		     解压后在bin目录下进入cmd
+	  	     使用命令进行并发请求
+		     用 ab 工具，以并发50次，来发送共20000个请求
+		  ab -n 20000 -c 50 http://localhost:3001/item-service/35
+		eg:(day02图:hystrix dashboard 断路器仪表盘.png)
+
+
+
+
+tips:
+1.RestTemplate
+     是Spring boot提供的一个远程调用工具
+     方法:1>getForObject(url,对象类型,参数)发起请求，自动将json结果转换为对应类型，请求参数
+      2>postForObject(url,对象类型,参数)
+  RestTemplate与Dubbo的区别:
+	  1>Dubbo使用RPC协议，RestTemplate使用Http协议	  
+	  2>调用执行方式不同，使用dubbo调用访问dubbo端口，直接执行Servicer实现类
+	           使用RestTemplate访问服务器端口（Tomcat），访问Controller
+2.spring cloud有两套微服务解决方案
+     一套netflix公司的包括eureka,ribbon，hystrix,zuul,feign
+     一套是阿里巴巴的spring cloud alibaba，远程调用还集成了dubbo
+	    	  
+  	
+       	 

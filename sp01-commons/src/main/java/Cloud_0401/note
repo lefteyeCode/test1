@@ -1,0 +1,104 @@
+一.Spring Cloud
+      开源的微服务解决方案，是一个框架集，集成多个框架来解决微服务中的各种问题
+      1)注册中心:eureka、zookeeper...
+      2)ribbon:负载均衡、重试（请求失败想起他服务器重试请求）
+      3)hystrix:降级、熔断
+      4)feign:ribbon+hystrix（集成）、声明式客户端（仅需要声明远程调用接口）
+      5)zuul:API网关、数据监控（hystrix仪表盘）、链路跟踪
+      6)config:配置中心
+      7)消息总线，配置刷新
+	1.SpringCloud和Dubbo对比
+	  Dubbo只能解决远程调用和负载均衡，基于长连接通讯，数据格式为序列化数据（java序列化、json...）
+	  SpringCloud是微服务的一整套解决方案，基于Http短连接通讯，数据格式RestAPI        
+
+
+二.创建项目
+	创建commons通用项目:
+	1)新建maven项目
+	2)pom文件中导入需要依赖
+	3)创建POJO类（Item、User、Order）
+	4)创建业务接口（ItemService、UserService、OrderService）	  
+	5)编辑util类（CookieUtil、JsonResult、JsonUtil）
+	创建item service（商品服务）、user service（用户服务）、order service（订单服务）
+	1)创建spring boot start起步项目	  
+	2)pom文件添加依赖项，yml文件中修改配置	  
+	3)编写业务实现类和控制层	  
+	4)发起请求访问两个控制层方法（post和get请求）	  
+
+	
+三.eureka
+      注册中心服务器，维护一组微服务的地址列表，其他微服务启动时要把自己的地址向eureka服务器进行注册
+	（1）客户端注册
+	     连接eureka服务器的localhost:xxx/eureka进行注册，连接失败，注册失败会稍后重试连接
+	（2）心跳检测
+	     默认每30秒发送一次心跳数据，丢失三次心跳数据认为微服务不可用
+	（3）eureka的保护模式
+	     当一个服务不可用，eureka会保留它的地址不删除（可能只是和注册中心连接断开，但是微服务之间调用良好）     	      
+	（4）客户端拉取地址表
+	     每30秒更新一次地址表
+   1.注册中心erueka和zookeeper区别
+   	   以上两种注册中心springclound都支持
+   	   1>eureka:实现了CAP原则中的AP（A:可用性	P:分区容错性）
+   	   			集群为对等结构
+   	   2>zookeeper:实现了CAP原则中的CP（C:一致性	P:分区容错性）
+   	   			集群为主从结构（主机宕机会执行推举，但是推举过程消耗时间，推举过程中集群不可用）
+   2.eureka服务端入门案例（开箱即用）
+   	   1>添加Eureka Server服务端依赖
+   	   2>在yml配置文件中配置eureka注册中心相关配置
+   	   	 添加application应用名、服务器端口号
+   	   	 添加enable-self-preservation设置erueka保护模式
+   	   	 添加hostname设置主机名
+   	   	 添加register-with-eureka设置不进行自我注册
+   	   	 添加fetch-registry设置不拉取地址表
+   	   	eureka 集群服务器之间，通过 hostname 来区分
+		（1）eureka.server.enable-self-preservation
+			eureka 的自我保护状态：心跳失败的比例，在15分钟内是否低于85%,如果出现了低于的情况，Eureka Server会将当前的实例注册信息保护起来，同时提示一个警告，一旦进入保护模式，Eureka Server将会尝试保护其服务注册表中的信息，不再删除服务注册表中的数据。也就是不会注销任何微服务
+		（2）eureka.client.register-with-eureka=false
+			不向自身注册
+		（3）eureka.client.fetch-registry=false
+			不从自身拉取注册信息
+		（4）eureka.instance.lease-expiration-duration-in-seconds
+			最后一次心跳后，间隔多久认定微服务不可用，默认90 
+   	   3>在主启动类上添加@EnableEurekaServer注解，表示启用eureka服务器
+   	   4>修改host文件，添加eureka域名映射
+   	   	   添加:127.0.0.1       eureka1
+			 127.0.0.1       eureka2
+   	   5>启动项目并访问测试   				     
+	3.eureka客户端入门案例（服务提供者）
+	   1>添加eureka客户端依赖
+	   2>配置eurzka服务器地址	
+	   		eureka:
+			  client:
+			    service-url:
+			      #结合云服务才能设置其他选项
+			      defaultZone: http://eureka:2001/eureka
+	   3>服务提供者主启动类上添加@EnableDiscoveryClient注解，启动eureka客户端
+	   4>访问eureka查看注册信息http://eureka1:2001
+	4.实现eureka高可用	
+	  yml中配置多个eureka服务器配置使用'---'分割配置
+	     每个配置中profiles配置eureka名
+	  port配置端口号
+	  client:service-url:defaultZone配置其他eureka地址，相互注册
+	  instance:hostname:配置主机名
+	  !!!:后期发布为jar包运行jar文件java -jar eureka.jar，命令行参数指定要激活的eureka注册中心spring.profiles.active=eureka2
+		  STS工具中可以直接在命令行中配置激活命令，启动视图中选中eureka项目右键->open config
+		     在arguments添加--spring.profiles.active=eureka2参数
+		     在name中修改名，在左侧显示栏中选中改过参数的启动项右键->Duplicate复制启动项
+		     在复制的启动项中修改启动参数，修改命令为启动其他eureka服务
+	      注意:虽然开启互相注册拉取服务列表可以实现多个eureka服务列表相同，但是宕机可能导致列表不一致
+	                所以修改服务提供者向所有注册中心进行注册，只需要在yml配置中将所有eurkea地址写上即可，
+	                用逗号隔开
+	  eg:(sp05-eureka/resources/application.yml)              
+	5.服务提供者高可用
+	  yml中配置多个端口使用'---'分割配置即可        
+	     每个配置中配置不同的服务端口号
+	     同样配置启动参数（类似eureka），启动参数为-spring.profiles.active=item1
+	     访问http://eureka1:2001查看注册信息    
+	  eg:(sp02-itemservice/resources/application.yml)    	     
+
+
+
+
+tips:
+1.控制层方法中接收参数使用@RequestBody注解描述
+     从请求协议体里接受数据		  

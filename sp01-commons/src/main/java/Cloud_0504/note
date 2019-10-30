@@ -1,0 +1,83 @@
+一.zuul API网关
+      提供一个统一的调用入口来简化调用
+   API网关可以看作是一个代理，客户端调用API网关，它向后台其他服务转发调用
+        默认规则:item-service:"/item-service/**"
+          user-service:"/user-service/**"
+   zuul还提供了过滤器，可以做权限验证
+	1.zuul 入门案例
+		1>新建sp11-zuul项目
+		2>添加eureka客户端和zuul依赖
+		3>修改yml配置，添加应用名、端口号、eureka客户端配置
+		  zuul默认有配置可以不添加配置
+		  	zuul:
+			 item-service: "/item-service/**"      
+			 user-service: "/user-service/**"      
+			 order-service: "/order-service/**"   
+		4>主程序添加注解@EnableZuulProxy和@EnableDiscoveryClient
+		5>启动测试
+		     访问http://localhost:3001/user-service/7测试
+	2.zuul+ribbon 
+	  zuul集成了ribbon负载均衡默认启用，但是重试没有默认启用
+	     启用重试:
+	    1>需要添加spring-retry依赖
+	    2>yml中设置zuul配置，启动重试 
+	      zuul: retryable: true 
+	    3>访问测试
+	3.zuul+hystrix降级
+	    1>新建降级类，实现FallbackAddressProvider接口，添加@Sl4j注解(需要Sl4g依赖)
+	    2>实现接口的两个方法
+	      getRoute():哪些服务应用使用该降级类，返回服务名，星号和null都表示所有微服务失败都应用当前降级类
+		  fallbackResponse():该方法返回封装降级响应的对象，ClientHttpResponse中封装降级响应
+		     				  使用一个方法返回ClientHttpResponse对象，创建匿名内部类实现其中的方法
+		     				 getHeaders()返回协议头、getStatusText()返回协议文本、getStatusCode()返回协议封装对象、getRawStatusCode()返回协议号
+		     				 getBody()返回协议体数据、close()关闭流方法
+		3>添加@Component交给spring管理即可，不需要其它配置     				 
+		eg:(sp11-zuul/com.tedu.sp11/ItemServiceFallback)
+	4.zuul+hystrix熔断
+	     降低hystrix超时时间，以便测试降级
+	  yml中配置熔断超时时间
+	5.zuul + hystrix dashboard监控
+	zuul 已经包含 actuator 依赖
+	  yml中添加配置暴露 hystrix.stream 监控端点
+	     开启监控，启动hystrix-dashboard仪表盘项目，填入zuul监控端点路径开启监控
+	6.zuul + turbine 聚合监控
+	     修改turbine聚合监控项目的yml，将对zuul的监控添加到聚合监控中(order-service,zuul,feign)
+	     访问仪表盘填入turbine暴露的监控端点 (http://localhost:5001/turbine.stream)
+	7.zuul请求过滤	
+	  zuul按照过滤器进行结构设计，请求到达zuul服务器之后先经过前置过滤器（pre filters）。转发调用前可以添加自定义过滤器（custom filters）。
+	     之后到达路由过滤器（routing filters）向其他服务进行转发，其他服务执行结束返回经过后置过滤器（post filters）
+	     之后向客户端返回。后置过滤器处的处理错误过滤器（error filters）默认没有，可以自己添加。
+		1>自定义过滤器，继承ZuulFilter
+		2>实现
+		  shouldFilter():判断此次请求是否应用该过滤器，判断为true执行过滤代码，false则不执行
+		  run()方法:具体的过滤代码
+		  filterType():设置过滤位置，前置/后置/路由
+		  filterOrder():设置过滤器顺序，默认有五个过滤器，设置的过滤器顺序大于5才能获得serviceid
+		3>编写shouldFilter()中代码，通过RequestContext.getCurrentContext获得上下文对象
+		     再通过上下文对象调用get()方法，传入FilterConstans.SERVICE_ID_KEY强转为String获得服务名
+		     判断是不是要拦截的服务，如果是返回true，反之false
+		4>run()方法中获得上下文对象，通过上下文对象获得HttpServletRequest请求对象，
+		     通过请求对象获得需要的参数进行校验，如果校验失败通过上下文对象调用setSendZuulResponse(false)阻止请求继续向后传递
+		     调用setResponseStatusCode()传入值设置响应状态码   
+		     调用setResponseBody()设置响应协议号   
+		5>filterType()方法返回值FilterConstans.PRE_TYPE即前置过滤位置    
+		6>filterOrder()方法返回值为FilterConstans.PRE_DECORATION_FILTER_ORDER（常量值5）+1     
+		     第五个过滤器设置的服务id，所以必须设置在第五个之后才能获得服务id
+		7>访问测试
+		  shouldFilter()方法中设置只对item-service进行过滤
+		     访问http://localhost:3001/item-service/35返回400，未登录
+		     携带token访问http://localhost:3001/item-service/35?token=dwa，访问成功
+		eg:(sp11-zuul/com.tedu.sp11.filter/AccessFilter)
+	           
+
+二.GitHub
+  1.分享项目
+    1>在GitHub创建远程仓库test1，右上角加号选择new repository
+    2>给仓库起名，设置仓库的公开级别，勾选是否加首页文档对项目做说明
+    3>创建成功后下面有仓库的地址https://github.com/lefteyeCode/test1.git
+    4>用eclipse把项目分享到本地仓库
+               右键点sp01项目->Team->share project
+  2.
+
+
+		
